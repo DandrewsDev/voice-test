@@ -12,6 +12,7 @@ require (
 	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/golang/geo v0.0.0-20230421003525-6adc56603217 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/google/go-cmp v0.5.6 // indirect
 	github.com/markus-wa/go-unassert v0.1.3 // indirect
 	github.com/markus-wa/gobitread v0.2.3 // indirect
 	github.com/markus-wa/godispatch v1.4.1 // indirect

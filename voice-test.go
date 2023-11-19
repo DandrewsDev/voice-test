@@ -4,15 +4,16 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"log"
-	"os"
-	"strings"
-
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs"
 	"github.com/markus-wa/demoinfocs-golang/v4/pkg/demoinfocs/msgs2"
+	"hash/crc32"
+	"log"
+	"os"
 )
+
+var sampleRate = 24000
 
 func extractOPUSData(inputVec [][]byte) ([]byte, error) {
 	var combinedPLCData []byte
@@ -31,9 +32,11 @@ func extractOPUSData(inputVec [][]byte) ([]byte, error) {
 			if len(inputBytes) < 3 {
 				panic(fmt.Errorf("insufficient data length to read payload"))
 			}
+			sampleRate = int(binary.LittleEndian.Uint16(inputBytes[0:2]))
 
+			inputBytes = inputBytes[2:]
 			// Read the payload type (byte 0)
-			payloadType := inputBytes[0]
+			//payloadType := inputBytes[0]
 
 			// Read the length of OPUS PLC data as uint16 (bytes 1-2, assuming little-endian byte order)
 			plcDataLength := binary.LittleEndian.Uint16(inputBytes[1:3])
@@ -46,8 +49,11 @@ func extractOPUSData(inputVec [][]byte) ([]byte, error) {
 			// Extract OPUS PLC data from inputBytes
 			plcData := inputBytes[3 : 3+plcDataLength]
 
+			checkSumBytes := inputBytes[3+plcDataLength:]
+			fmt.Println("checksum bytes", hex.EncodeToString(checkSumBytes), binary.LittleEndian.Uint32(checkSumBytes), makeCrc32(plcData))
+
 			// Print payload type, byte length, and OPUS PLC data
-			fmt.Printf("[Payload Type: 0x%X] [Byte Length: %d] [OPUS PLC Data: %X]\n", payloadType, plcDataLength, plcData)
+			//fmt.Printf("[Payload Type: 0x%X] [Byte Length: %d] [OPUS PLC Data: %X]\n", payloadType, plcDataLength, plcData)
 
 			// Append the extracted PLC data to the combined PLC data slice
 			combinedPLCData = append(combinedPLCData, plcData...)
@@ -65,11 +71,11 @@ func createWAVFile(data []byte, filename string) error {
 	}
 	defer file.Close()
 
-	enc := wav.NewEncoder(file, 48000, 16, 1, 1)
+	enc := wav.NewEncoder(file, sampleRate, 16, 1, 1)
 
 	buf := &audio.IntBuffer{
 		Format: &audio.Format{
-			SampleRate:  48000,
+			SampleRate:  sampleRate,
 			NumChannels: 1,
 		},
 		Data: make([]int, len(data)/2), // Create a buffer for the audio data
@@ -85,6 +91,7 @@ func createWAVFile(data []byte, filename string) error {
 	}
 	return enc.Close()
 }
+
 func main() {
 	var vec [][]byte
 
@@ -99,29 +106,18 @@ func main() {
 
 	p := demoinfocs.NewParserWithConfig(f, cfg)
 	defer p.Close()
-	fmt.Println("Codec____________\n")
 	p.RegisterNetMessageHandler(func(m *msgs2.CSVCMsg_VoiceInit) {
 		fmt.Println(m.Codec, m, m.String(), m.Version)
 	})
-	fmt.Println("Data____________\n")
 	p.RegisterNetMessageHandler(func(m *msgs2.CSVCMsg_VoiceData) {
 		audioBytes := m.Audio.GetVoiceData()
-		fmt.Println(hex.EncodeToString(audioBytes))
-		parts := strings.Split(hex.EncodeToString(audioBytes), "0bc05d")
+		audioBytes = audioBytes[9:]
 
-		// Remove the first part and append the rest to vec
-
-		if len(parts) > 1 {
-			remainingHex := parts[1]
-			decodedBytes, err := hex.DecodeString(remainingHex)
-			if err != nil {
-				fmt.Println("Error:", err)
-				return
-			}
-			vec = append(vec, decodedBytes)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
 		}
-
-		fmt.Println("========================")
+		vec = append(vec, audioBytes)
 	})
 	// Print the resulting vec
 
@@ -147,4 +143,13 @@ func main() {
 
 	fmt.Println("Audio file generated: output.wav")
 
+}
+
+const (
+	IEEE = 0xedb88320
+)
+
+func makeCrc32(dataInput []byte) uint32 {
+	crc32q := crc32.MakeTable(IEEE)
+	return crc32.Checksum(dataInput, crc32q)
 }
